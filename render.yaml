@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: clinic-booking
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/doctors
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: ADMIN_TOKEN
+        generateValue: true
+      - key: CLINIC_NAME
+        value: Sunrise Multi-Speciality Clinic
+      - key: CLINIC_PHONE
+        value: +91 90000 00000
+      - key: LLM_API_KEY
+        sync: false

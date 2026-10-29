@@ -1,161 +1,152 @@
-"""FastAPI app: patient chat, booking API, admin API and WhatsApp webhook."""
-import threading
-from datetime import date
+"""Application factory. `uvicorn app.main:app` serves the default instance."""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+import time
+import uuid
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
-from xml.sax.saxutils import escape
 
-from fastapi import Depends, FastAPI, Form, Header, HTTPException, Request
-from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel, Field
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import FileResponse
 
-from . import booking, config, db
-from .assistant import Assistant
+from app import __version__
+from app.ai.assistant import ConversationState
+from app.ai.llm import Extractor, NullExtractor, OpenAICompatibleExtractor
+from app.api.errors import install_error_handlers
+from app.api.routes import routers
+from app.core.config import Settings, get_settings
+from app.core.database import Database
+from app.core.logging import configure_logging, request_id_var
+from app.core.security import RateLimiter
+from app.services.notifications import DisabledNotifier, Notifier, TwilioWhatsAppNotifier
+from app.services.scheduler import reminder_loop
+from app.services.sessions import SessionStore
 
-STATIC = Path(__file__).resolve().parent.parent / "static"
+log = logging.getLogger(__name__)
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
-
-class ChatIn(BaseModel):
-    session_id: str = Field(min_length=4, max_length=64)
-    message: str = Field(min_length=1, max_length=1000)
-
-
-class BookIn(BaseModel):
-    doctor_id: int
-    date: date
-    time: str = Field(pattern=r"^\d{2}:\d{2}$")
-    patient_name: str
-    patient_phone: str
-    reason: str = ""
-
-
-class CancelIn(BaseModel):
-    phone: str
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "same-origin",
+}
 
 
-class StatusIn(BaseModel):
-    status: str
+def build_extractor(settings: Settings) -> Extractor:
+    if not settings.llm_enabled:
+        return NullExtractor()
+    return OpenAICompatibleExtractor(
+        api_key=settings.llm_api_key.get_secret_value(),
+        base_url=settings.llm_base_url,
+        model=settings.llm_model,
+        timeout=settings.llm_timeout_seconds,
+        max_retries=settings.llm_max_retries,
+    )
 
 
-class DoctorIn(BaseModel):
-    name: str
-    specialty: str
-    work_days: str = "0,1,2,3,4,5"
-    start_time: str = Field("10:00", pattern=r"^\d{2}:\d{2}$")
-    end_time: str = Field("17:00", pattern=r"^\d{2}:\d{2}$")
-    slot_minutes: int = Field(20, ge=5, le=120)
-    fee: int = Field(500, ge=0)
+def build_notifier(settings: Settings) -> Notifier:
+    if not settings.whatsapp_sending_enabled:
+        return DisabledNotifier()
+    return TwilioWhatsAppNotifier(
+        account_sid=settings.twilio_account_sid,
+        auth_token=settings.twilio_auth_token.get_secret_value(),
+        from_number=settings.twilio_whatsapp_from,
+    )
 
 
-def create_app(db_path: str | None = None) -> FastAPI:
-    app = FastAPI(title=f"{config.CLINIC_NAME} - AI Booking", version="1.0.0")
-    conn = db.connect(db_path)
-    db.init_db(conn)
-    lock = threading.Lock()
-    app.state.conn = conn
+def create_app(
+    settings: Settings | None = None,
+    *,
+    clock: Callable[[], datetime] | None = None,
+    extractor: Extractor | None = None,
+    notifier: Notifier | None = None,
+) -> FastAPI:
+    settings = settings or get_settings()
+    configure_logging(settings.log_level, settings.log_json)
 
-    def get_conn():
-        with lock:  # one SQLite connection, one request at a time
-            yield conn
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        db: Database = app.state.db
+        with db.session() as conn:
+            version = db.migrate(conn)
+            if settings.seed_demo_data:
+                db.seed_demo_doctors(conn)
+            ttl = timedelta(minutes=settings.session_ttl_minutes)
+            purged = SessionStore(conn, ConversationState, ttl).purge_expired()
+        log.info(
+            "startup complete",
+            extra={
+                "schema_version": version,
+                "sessions_purged": purged,
+                "llm_enabled": settings.llm_enabled,
+                "env": settings.env,
+            },
+        )
+        scheduler = None
+        if settings.reminder_send_hour is not None and app.state.notifier.configured:
+            scheduler = asyncio.create_task(reminder_loop(app, settings.reminder_send_hour))
+        yield
+        if scheduler:
+            scheduler.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await scheduler
+        for client in (app.state.extractor, app.state.notifier):
+            close = getattr(client, "close", None)
+            if close:
+                close()
 
-    def require_admin(x_admin_token: str = Header(default="")):
-        if x_admin_token != config.ADMIN_TOKEN:
-            raise HTTPException(401, "Invalid admin token")
+    app = FastAPI(
+        title=f"{settings.clinic_name} · AI Booking API",
+        version=__version__,
+        lifespan=lifespan,
+        docs_url=None if settings.env == "production" else "/docs",
+        redoc_url=None,
+    )
+    app.state.settings = settings
+    app.state.db = Database(settings.db_path)
+    app.state.clock = clock or (lambda: datetime.now(settings.tz).replace(tzinfo=None))
+    app.state.extractor = extractor or build_extractor(settings)
+    app.state.notifier = notifier or build_notifier(settings)
+    app.state.rate_limiter = RateLimiter(settings.chat_rate_limit_per_minute)
 
-    def bad(e: booking.BookingError):
-        return HTTPException(400, str(e))
+    @app.middleware("http")
+    async def request_context(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+        request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:16]
+        token = request_id_var.set(request_id)
+        started = time.perf_counter()
+        try:
+            response = await call_next(request)
+            response.headers["X-Request-ID"] = request_id
+            response.headers.update(_SECURITY_HEADERS)
+            if request.url.path not in ("/health", "/ready"):
+                log.info(
+                    "%s %s %d",
+                    request.method,
+                    request.url.path,
+                    response.status_code,
+                    extra={"duration_ms": round((time.perf_counter() - started) * 1000, 1)},
+                )
+            return response
+        finally:
+            request_id_var.reset(token)
 
-    # ---------- pages
+    install_error_handlers(app)
+    for router in routers:
+        app.include_router(router)
+
     @app.get("/", include_in_schema=False)
-    def chat_page():
-        return FileResponse(STATIC / "index.html")
+    def chat_page() -> FileResponse:
+        return FileResponse(STATIC_DIR / "index.html")
 
     @app.get("/admin", include_in_schema=False)
-    def admin_page():
-        return FileResponse(STATIC / "admin.html")
-
-    @app.get("/health")
-    def health():
-        return {"ok": True, "llm": bool(config.LLM_API_KEY)}
-
-    @app.get("/api/clinic")
-    def clinic():
-        return {"name": config.CLINIC_NAME, "phone": config.CLINIC_PHONE}
-
-    # ---------- public API
-    @app.post("/api/chat")
-    def chat(body: ChatIn, c=Depends(get_conn)):
-        return Assistant(c).reply(body.session_id, body.message, source="web")
-
-    @app.get("/api/doctors")
-    def doctors(c=Depends(get_conn)):
-        return booking.list_doctors(c)
-
-    @app.get("/api/doctors/{doctor_id}/slots")
-    def slots(doctor_id: int, date: date, c=Depends(get_conn)):
-        if not booking.get_doctor(c, doctor_id):
-            raise HTTPException(404, "Doctor not found")
-        return {"doctor_id": doctor_id, "date": date.isoformat(), "slots": booking.available_slots(c, doctor_id, date)}
-
-    @app.post("/api/appointments", status_code=201)
-    def create_appt(body: BookIn, c=Depends(get_conn)):
-        try:
-            return booking.book(c, body.doctor_id, body.date, body.time, body.patient_name,
-                                body.patient_phone, body.reason, source="api")
-        except booking.BookingError as e:
-            raise bad(e)
-
-    @app.get("/api/appointments/{code}")
-    def get_appt(code: str, phone: str, c=Depends(get_conn)):
-        appt = booking.get_appointment(c, code)
-        try:
-            ok = appt and booking.normalize_phone(phone) == appt["patient_phone"]
-        except booking.BookingError:
-            ok = False
-        if not ok:
-            raise HTTPException(404, "Booking not found")
-        return appt
-
-    @app.post("/api/appointments/{code}/cancel")
-    def cancel_appt(code: str, body: CancelIn, c=Depends(get_conn)):
-        try:
-            return booking.cancel(c, code, body.phone)
-        except booking.BookingError as e:
-            raise bad(e)
-
-    # ---------- admin API
-    @app.get("/api/admin/stats", dependencies=[Depends(require_admin)])
-    def admin_stats(c=Depends(get_conn)):
-        return booking.stats(c)
-
-    @app.get("/api/admin/appointments", dependencies=[Depends(require_admin)])
-    def admin_list(date: str | None = None, status: str | None = None, doctor_id: int | None = None,
-                   c=Depends(get_conn)):
-        return booking.list_appointments(c, day=date, status=status, doctor_id=doctor_id)
-
-    @app.post("/api/admin/appointments/{code}/status", dependencies=[Depends(require_admin)])
-    def admin_status(code: str, body: StatusIn, c=Depends(get_conn)):
-        try:
-            return booking.set_status(c, code, body.status)
-        except booking.BookingError as e:
-            raise bad(e)
-
-    @app.post("/api/admin/doctors", status_code=201, dependencies=[Depends(require_admin)])
-    def admin_add_doctor(body: DoctorIn, c=Depends(get_conn)):
-        return booking.add_doctor(c, body.model_dump())
-
-    @app.get("/api/admin/reminders", dependencies=[Depends(require_admin)])
-    def admin_reminders(date: date, c=Depends(get_conn)):
-        return booking.reminders_for(c, date)
-
-    # ---------- WhatsApp (Twilio sandbox / WhatsApp Business via Twilio)
-    @app.post("/webhook/whatsapp")
-    def whatsapp(From: str = Form(...), Body: str = Form(""), c=Depends(get_conn)):
-        result = Assistant(c).reply("wa:" + From, Body or "hi", source="whatsapp")
-        text = result["text"]
-        if result.get("options"):
-            text += "\n\n" + " | ".join(result["options"])
-        twiml = f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>{escape(text)}</Message></Response>'
-        return Response(twiml, media_type="application/xml")
+    def admin_page() -> FileResponse:
+        return FileResponse(STATIC_DIR / "admin.html")
 
     return app
 

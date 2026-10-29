@@ -1,0 +1,33 @@
+{"id": "en-01", "text": "I have tooth pain, can I come tomorrow at 11am?", "intent": null, "specialty": "Dentist", "date": "+1", "time": "11:00"}
+{"id": "en-02", "text": "book a dentist tomorrow", "intent": "book", "specialty": "Dentist", "date": "+1", "time": null}
+{"id": "en-03", "text": "my son has fever, can we come day after tomorrow evening", "intent": null, "specialty": "Pediatrician", "date": "+2", "time": "16:30"}
+{"id": "en-04", "text": "skin rash since a week, friday 2pm?", "intent": null, "specialty": "Dermatologist", "date": "2026-11-06", "time": "14:00"}
+{"id": "en-05", "text": "need appointment with Dr. Lakshmi on 4/11", "intent": "book", "specialty": "Gynecologist", "date": "2026-11-04", "time": null}
+{"id": "en-06", "text": "cancel CB1A2B3C", "intent": "cancel", "specialty": null, "date": null, "time": null}
+{"id": "en-07", "text": "show my bookings", "intent": "my_bookings", "specialty": null, "date": null, "time": null}
+{"id": "en-08", "text": "which doctors do you have", "intent": "doctors", "specialty": null, "date": null, "time": null}
+{"id": "en-09", "text": "hello", "intent": "greet", "specialty": null, "date": null, "time": null}
+{"id": "en-10", "text": "cough and cold, today at 12:30", "intent": null, "specialty": "General Physician", "date": "+0", "time": "12:30"}
+{"id": "en-11", "text": "acne problem, 10 nov morning", "intent": null, "specialty": "Dermatologist", "date": "2026-11-10", "time": "10:00"}
+{"id": "en-12", "text": "pregnancy checkup next wednesday at 11", "intent": null, "specialty": "Gynecologist", "date": "2026-11-04", "time": "11:00"}
+{"id": "en-13", "text": "my baby is not eating well", "intent": null, "specialty": "Pediatrician", "date": null, "time": null}
+{"id": "en-14", "text": "root canal follow-up on 2026-11-20 at 4 pm", "intent": null, "specialty": "Dentist", "date": "2026-11-20", "time": "16:00"}
+{"id": "en-15", "text": "a person with no reason to visit", "intent": "book", "specialty": null, "date": null, "time": null}
+{"id": "en-16", "text": "BP is high, want to see a physician", "intent": "book", "specialty": "General Physician", "date": null, "time": null}
+{"id": "en-17", "text": "help", "intent": "help", "specialty": null, "date": null, "time": null}
+{"id": "te-01", "text": "రేపు పంటి నొప్పి", "intent": null, "specialty": "Dentist", "date": "+1", "time": null}
+{"id": "te-02", "text": "జ్వరం ఉంది, ఈరోజు రావచ్చా", "intent": null, "specialty": "General Physician", "date": "+0", "time": null}
+{"id": "te-03", "text": "పాప కి జలుబు, ఎల్లుండి", "intent": null, "specialty": "Pediatrician", "date": "+2", "time": null}
+{"id": "te-04", "text": "నా బుకింగ్స్", "intent": "my_bookings", "specialty": null, "date": null, "time": null}
+{"id": "te-05", "text": "చర్మం మీద మొటిమలు, రేపు 11am", "intent": null, "specialty": "Dermatologist", "date": "+1", "time": "11:00"}
+{"id": "te-06", "text": "బుకింగ్ క్యాన్సిల్ చేయాలి", "intent": "cancel", "specialty": null, "date": null, "time": null}
+{"id": "mix-01", "text": "kal dentist ke paas jana hai 5 baje", "intent": null, "specialty": "Dentist", "date": "+1", "time": "17:00"}
+{"id": "mix-02", "text": "naaku pantlu noppi ga undi repu ravacha", "intent": null, "specialty": "Dentist", "date": "+1", "time": null}
+{"id": "hard-01", "text": "my wife is expecting, can she get a scan slot this week", "intent": "book", "specialty": "Gynecologist", "date": null, "time": null}
+{"id": "hard-02", "text": "the little one needs vaccination shots", "intent": null, "specialty": "Pediatrician", "date": null, "time": null}
+{"id": "hard-03", "text": "itchy patches on my arm, any time after lunch tomorrow", "intent": null, "specialty": "Dermatologist", "date": "+1", "time": "14:00"}
+{"id": "hard-04", "text": "my gums bleed when I brush", "intent": null, "specialty": "Dentist", "date": null, "time": null}
+{"id": "hard-05", "text": "feeling dizzy and weak since yesterday", "intent": null, "specialty": "General Physician", "date": null, "time": null}
+{"id": "en-18", "text": "reschedule CB1A2B3C to friday 4pm", "intent": "reschedule", "specialty": null, "date": "2026-11-06", "time": "16:00"}
+{"id": "en-19", "text": "can I change my appointment to tomorrow", "intent": "reschedule", "specialty": null, "date": "+1", "time": null}
+{"id": "te-07", "text": "నా అపాయింట్‌మెంట్ మార్చాలి", "intent": "reschedule", "specialty": null, "date": null, "time": null}

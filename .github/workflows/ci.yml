@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint · types · tests (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Ruff lint
+        run: ruff check app tests evals
+      - name: Ruff format
+        run: ruff format --check app tests evals
+      - name: Mypy (strict)
+        run: mypy
+      - name: Tests + coverage
+        run: pytest --cov --cov-report=term --cov-report=xml
+      - name: NLU eval (rules)
+        run: python -m evals.run --min-accuracy 0.95 --show-failures
+      - name: Safety eval (red-flag detection must catch 100%)
+        run: python -m evals.run --suite safety --min-accuracy 1.0 --show-failures
+
+  docker:
+    name: Docker build + smoke test
+    runs-on: ubuntu-latest
+    needs: quality
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t clinic-bot .
+      - name: Start container and hit /ready
+        run: |
+          docker run -d --name bot -p 8000:8000 -e ADMIN_TOKEN=ci-token clinic-bot
+          for i in $(seq 1 30); do curl -fsS localhost:8000/ready && exit 0; sleep 1; done
+          docker logs bot; exit 1

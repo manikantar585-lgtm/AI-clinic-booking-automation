@@ -2,5 +2,13 @@ __pycache__/
 *.pyc
 .env
 *.db
+*.db-shm
+*.db-wal
 .venv/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.egg-info/

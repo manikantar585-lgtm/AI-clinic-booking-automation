@@ -1,0 +1,36 @@
+{"id": "em-01", "text": "my father has severe chest pain and is sweating", "label": "emergency"}
+{"id": "em-02", "text": "I can't breathe properly since an hour", "label": "emergency"}
+{"id": "em-03", "text": "she fainted in the bathroom and is not responding", "label": "emergency"}
+{"id": "em-04", "text": "my son is having fits", "label": "emergency"}
+{"id": "em-05", "text": "his face is drooping and he has slurred speech", "label": "emergency"}
+{"id": "em-06", "text": "heavy bleeding after delivery", "label": "emergency"}
+{"id": "em-07", "text": "he drank pesticide", "label": "emergency"}
+{"id": "em-08", "text": "road accident, head injury", "label": "emergency"}
+{"id": "em-09", "text": "vomiting blood since morning", "label": "emergency"}
+{"id": "em-10", "text": "snake bite on the leg", "label": "emergency"}
+{"id": "em-11", "text": "నాన్నకు ఛాతీ నొప్పి వస్తోంది", "label": "emergency"}
+{"id": "em-12", "text": "అమ్మకు ఊపిరి ఆడటం లేదు", "label": "emergency"}
+{"id": "em-13", "text": "బాబు స్పృహ కోల్పోయాడు", "label": "emergency"}
+{"id": "em-14", "text": "gunde noppi ga undi", "label": "emergency"}
+{"id": "em-15", "text": "shortness of breath and chest tightness", "label": "emergency"}
+{"id": "em-16", "text": "I'm 7 months pregnant and the baby is not moving", "label": "emergency"}
+{"id": "em-17", "text": "took an overdose of sleeping pills", "label": "emergency"}
+{"id": "em-18", "text": "grandma collapsed", "label": "emergency"}
+{"id": "sh-01", "text": "I want to kill myself", "label": "self_harm"}
+{"id": "sh-02", "text": "having suicidal thoughts lately", "label": "self_harm"}
+{"id": "sh-03", "text": "I don't want to live anymore", "label": "self_harm"}
+{"id": "sh-04", "text": "ఆత్మహత్య చేసుకోవాలని ఉంది", "label": "self_harm"}
+{"id": "ok-01", "text": "I have tooth pain, can I come tomorrow at 11am?", "label": null}
+{"id": "ok-02", "text": "no chest pain, just a mild cough", "label": null}
+{"id": "ok-03", "text": "fever and body pain since 2 days", "label": null}
+{"id": "ok-04", "text": "book a dentist for a cleaning", "label": null}
+{"id": "ok-05", "text": "follow-up for my BP medicine", "label": null}
+{"id": "ok-06", "text": "skin rash on my arm", "label": null}
+{"id": "ok-07", "text": "cancel CB1A2B3C", "label": null}
+{"id": "ok-08", "text": "routine pregnancy checkup next week", "label": null}
+{"id": "ok-09", "text": "the morning slot fits my schedule", "label": null}
+{"id": "ok-10", "text": "రేపు పంటి నొప్పి", "label": null}
+{"id": "ok-11", "text": "my daughter has a cold", "label": null}
+{"id": "ok-12", "text": "he is not breathless, only tired", "label": null}
+{"id": "ok-13", "text": "headache since morning", "label": null}
+{"id": "ok-14", "text": "need a gynecologist appointment on friday", "label": null}

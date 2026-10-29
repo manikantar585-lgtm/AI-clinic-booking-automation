@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Iterator
 from datetime import timedelta
 from typing import Annotated
@@ -11,6 +10,7 @@ from fastapi import Depends, Header, HTTPException, Request
 
 from app.ai.assistant import Assistant, ConversationState
 from app.core.config import Settings
+from app.core.database import DbConnection
 from app.core.security import tokens_match
 from app.services.booking import BookingService
 from app.services.sessions import SessionStore
@@ -21,13 +21,13 @@ def get_settings(request: Request) -> Settings:
     return settings
 
 
-def get_conn(request: Request) -> Iterator[sqlite3.Connection]:
+def get_conn(request: Request) -> Iterator[DbConnection]:
     with request.app.state.db.session() as conn:
         yield conn
 
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
-ConnDep = Annotated[sqlite3.Connection, Depends(get_conn)]
+ConnDep = Annotated[DbConnection, Depends(get_conn)]
 
 
 def get_booking(request: Request, conn: ConnDep, settings: SettingsDep) -> BookingService:

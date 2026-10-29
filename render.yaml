@@ -13,6 +13,8 @@ services:
         value: Sunrise Multi-Speciality Clinic
       - key: CLINIC_PHONE
         value: +91 90000 00000
+      - key: DATABASE_URL
+        sync: false
       - key: LLM_API_KEY
         sync: false
       - key: TWILIO_AUTH_TOKEN

@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import logging
 import secrets
-import sqlite3
 from collections import defaultdict
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from app.core.database import transaction
+from app.core.database import DbConnection, IntegrityError, transaction, utcnow
 from app.core.errors import InvalidInputError, InvalidTransitionError, NotFoundError, SlotUnavailableError
 from app.domain.models import (
     Appointment,
@@ -35,10 +34,15 @@ _APPOINTMENT_SELECT = (
 )
 
 
+def _is_code_collision(e: Exception) -> bool:
+    # SQLite: "UNIQUE constraint failed: appointments.code"; Postgres: "... appointments_code_key"
+    return any(marker in str(e) for marker in ("appointments.code", "appointments_code_key"))
+
+
 class BookingService:
     def __init__(
         self,
-        conn: sqlite3.Connection,
+        conn: DbConnection,
         clock: Clock,
         *,
         clinic_name: str = "the clinic",
@@ -77,13 +81,13 @@ class BookingService:
         if start_time >= end_time:
             raise InvalidInputError("start_time must be before end_time.")
         with transaction(self.conn):
-            cur = self.conn.execute(
+            doctor_id = self.conn.execute(
                 "INSERT INTO doctors (name, specialty, work_days, start_time, end_time, slot_minutes, fee) "
-                "VALUES (?,?,?,?,?,?,?)",
+                "VALUES (?,?,?,?,?,?,?) RETURNING id",
                 (name, specialty, ",".join(map(str, sorted(set(work_days)))), start_time, end_time, slot_minutes, fee),
-            )
-        log.info("doctor added", extra={"doctor_id": cur.lastrowid})
-        return self.get_doctor(cur.lastrowid or 0)
+            ).fetchone()[0]
+        log.info("doctor added", extra={"doctor_id": doctor_id})
+        return self.get_doctor(doctor_id)
 
     # ------------------------------------------------------------- availability
 
@@ -169,8 +173,8 @@ class BookingService:
                         "VALUES (?,?,?,?,?,?,?,?)",
                         (code, doctor_id, name, phone, day.isoformat(), time, reason[:200], source.value),
                     )
-            except sqlite3.IntegrityError as e:
-                if "appointments.code" in str(e):
+            except IntegrityError as e:
+                if _is_code_collision(e):
                     continue  # booking-code collision: retry with a new code
                 raise SlotUnavailableError("Sorry, someone just booked that slot. Please pick another time.") from e
             log.info("appointment booked", extra={"code": code, "doctor_id": doctor_id, "source": source.value})
@@ -193,10 +197,10 @@ class BookingService:
                     raise SlotUnavailableError("Sorry, that slot is not available. Please pick another time.")
                 self.conn.execute(
                     "UPDATE appointments SET date = ?, time = ?, rescheduled_count = rescheduled_count + 1, "
-                    "reminder_sent_at = NULL, updated_at = datetime('now') WHERE code = ?",
-                    (day.isoformat(), time, appt.code),
+                    "reminder_sent_at = NULL, updated_at = ? WHERE code = ?",
+                    (day.isoformat(), time, utcnow(), appt.code),
                 )
-        except sqlite3.IntegrityError as e:
+        except IntegrityError as e:
             raise SlotUnavailableError("Sorry, someone just booked that slot. Please pick another time.") from e
         log.info("appointment rescheduled", extra={"code": appt.code, "from": f"{appt.date} {appt.time}"})
         return self.get_appointment(appt.code)
@@ -214,11 +218,11 @@ class BookingService:
         if end < self.clock().date():
             raise InvalidInputError("That leave is entirely in the past.")
         with transaction(self.conn):
-            cur = self.conn.execute(
-                "INSERT INTO doctor_leaves (doctor_id, start_date, end_date, reason) VALUES (?,?,?,?)",
+            leave_id = self.conn.execute(
+                "INSERT INTO doctor_leaves (doctor_id, start_date, end_date, reason) VALUES (?,?,?,?) RETURNING id",
                 (doctor_id, start.isoformat(), end.isoformat(), reason.strip()[:120]),
-            )
-        row = self.conn.execute("SELECT * FROM doctor_leaves WHERE id = ?", (cur.lastrowid,)).fetchone()
+            ).fetchone()[0]
+        row = self.conn.execute("SELECT * FROM doctor_leaves WHERE id = ?", (leave_id,)).fetchone()
         affected = self.list_appointments(
             doctor_id=doctor_id, status=AppointmentStatus.BOOKED, date_from=start, date_to=end, limit=500
         )
@@ -267,8 +271,8 @@ class BookingService:
         check_transition(appt.status, status)
         with transaction(self.conn):
             self.conn.execute(
-                "UPDATE appointments SET status = ?, updated_at = datetime('now') WHERE code = ?",
-                (status.value, appt.code),
+                "UPDATE appointments SET status = ?, updated_at = ? WHERE code = ?",
+                (status.value, utcnow(), appt.code),
             )
         log.info("appointment status changed", extra={"code": appt.code, "from": appt.status, "to": status})
         return self.get_appointment(appt.code)
@@ -320,17 +324,17 @@ class BookingService:
         row = self.conn.execute(
             """
             SELECT
-              COALESCE(SUM(a.status = 'booked' AND a.date = :today), 0)  AS today_booked,
-              COALESCE(SUM(a.status = 'booked' AND a.date >= :today), 0) AS upcoming,
-              COALESCE(SUM(a.status = 'completed'), 0)                   AS completed,
-              COALESCE(SUM(a.status = 'cancelled'), 0)                   AS cancelled,
-              COALESCE(SUM(a.status = 'no_show'), 0)                     AS no_show,
+              SUM(CASE WHEN a.status = 'booked' AND a.date = :today THEN 1 ELSE 0 END) AS today_booked,
+              SUM(CASE WHEN a.status = 'booked' AND a.date >= :today THEN 1 ELSE 0 END) AS upcoming,
+              SUM(CASE WHEN a.status = 'completed' THEN 1 ELSE 0 END) AS completed,
+              SUM(CASE WHEN a.status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled,
+              SUM(CASE WHEN a.status = 'no_show' THEN 1 ELSE 0 END) AS no_show,
               COALESCE(SUM(CASE WHEN a.status = 'completed' THEN d.fee END), 0) AS revenue_completed
             FROM appointments a JOIN doctors d ON d.id = a.doctor_id
             """,
             {"today": today},
         ).fetchone()
-        return dict(row)
+        return {k: int(v or 0) for k, v in dict(row).items()}
 
     def _reminder_text(self, a: Appointment) -> str:
         return (
@@ -364,9 +368,7 @@ class BookingService:
                 failed.append({"code": a.code, "patient_name": a.patient_name, "error": str(e)})
                 continue
             with transaction(self.conn):
-                self.conn.execute(
-                    "UPDATE appointments SET reminder_sent_at = datetime('now') WHERE code = ?", (a.code,)
-                )
+                self.conn.execute("UPDATE appointments SET reminder_sent_at = ? WHERE code = ?", (utcnow(), a.code))
             sent += 1
         log.info("reminders run", extra={"date": day.isoformat(), "sent": sent, "failed": len(failed)})
         return {"date": day.isoformat(), "sent": sent, "already_sent": already, "failed": failed}
@@ -381,30 +383,36 @@ class BookingService:
 
         daily = {(start + timedelta(days=i)).isoformat(): dict.fromkeys(AppointmentStatus, 0) for i in range(days)}
         for r in q(
-            f"SELECT date, status, COUNT(*) n FROM appointments WHERE {in_window} GROUP BY date, status", window
+            f"SELECT date, status, COUNT(*) AS n FROM appointments WHERE {in_window} GROUP BY date, status", window
         ):
             daily[r["date"]][AppointmentStatus(r["status"])] = r["n"]
 
-        t = q(
-            """SELECT COUNT(*) total,
-                      COALESCE(SUM(a.status = 'completed'), 0) completed,
-                      COALESCE(SUM(a.status = 'no_show'), 0) no_show,
-                      COALESCE(SUM(a.status = 'cancelled'), 0) cancelled,
-                      COALESCE(SUM(CASE WHEN a.status = 'completed' THEN d.fee END), 0) revenue,
-                      AVG(julianday(a.date) - julianday(date(a.created_at))) lead_days
+        t_row = q(
+            """SELECT COUNT(*) AS total,
+                      COALESCE(SUM(CASE WHEN a.status = 'completed' THEN 1 ELSE 0 END), 0) AS completed,
+                      COALESCE(SUM(CASE WHEN a.status = 'no_show' THEN 1 ELSE 0 END), 0) AS no_show,
+                      COALESCE(SUM(CASE WHEN a.status = 'cancelled' THEN 1 ELSE 0 END), 0) AS cancelled,
+                      COALESCE(SUM(CASE WHEN a.status = 'completed' THEN d.fee END), 0) AS revenue
                FROM appointments a JOIN doctors d ON d.id = a.doctor_id
                WHERE a.date BETWEEN :start AND :end""",
             window,
         ).fetchone()
+        t = {k: int(v or 0) for k, v in dict(t_row).items()}
         attended = t["completed"] + t["no_show"]
+        # Booking lead time in Python: date arithmetic differs between SQLite and Postgres.
+        leads = [
+            (date.fromisoformat(r["date"]) - date.fromisoformat(r["created_at"][:10])).days
+            for r in q(f"SELECT date, created_at FROM appointments WHERE {in_window}", window)
+        ]
+        lead_days = sum(leads) / len(leads) if leads else None
 
         by_doctor = [
-            dict(r)
+            {k: (int(v) if k in ("id", "total", "completed", "no_show", "revenue") else v) for k, v in dict(r).items()}
             for r in q(
-                """SELECT d.id, d.name, d.specialty, COUNT(a.id) total,
-                          COALESCE(SUM(a.status = 'completed'), 0) completed,
-                          COALESCE(SUM(a.status = 'no_show'), 0) no_show,
-                          COALESCE(SUM(CASE WHEN a.status = 'completed' THEN d.fee END), 0) revenue
+                """SELECT d.id, d.name, d.specialty, COUNT(a.id) AS total,
+                          COALESCE(SUM(CASE WHEN a.status = 'completed' THEN 1 ELSE 0 END), 0) AS completed,
+                          COALESCE(SUM(CASE WHEN a.status = 'no_show' THEN 1 ELSE 0 END), 0) AS no_show,
+                          COALESCE(SUM(CASE WHEN a.status = 'completed' THEN d.fee END), 0) AS revenue
                    FROM doctors d LEFT JOIN appointments a
                      ON a.doctor_id = d.id AND a.date BETWEEN :start AND :end
                    WHERE d.active = 1 GROUP BY d.id ORDER BY revenue DESC, total DESC""",
@@ -413,12 +421,12 @@ class BookingService:
         ]
         by_channel = {
             r["source"]: r["n"]
-            for r in q(f"SELECT source, COUNT(*) n FROM appointments WHERE {in_window} GROUP BY source", window)
+            for r in q(f"SELECT source, COUNT(*) AS n FROM appointments WHERE {in_window} GROUP BY source", window)
         }
         by_hour = {
             int(r["h"]): r["n"]
             for r in q(
-                f"SELECT substr(time, 1, 2) h, COUNT(*) n FROM appointments "
+                f"SELECT substr(time, 1, 2) AS h, COUNT(*) AS n FROM appointments "
                 f"WHERE {in_window} AND status != 'cancelled' GROUP BY h",
                 window,
             )
@@ -438,7 +446,7 @@ class BookingService:
                 "revenue": t["revenue"],
                 "no_show_rate": round(t["no_show"] / attended, 3) if attended else 0.0,
                 "cancellation_rate": round(t["cancelled"] / t["total"], 3) if t["total"] else 0.0,
-                "avg_lead_days": round(t["lead_days"], 1) if t["lead_days"] is not None else None,
+                "avg_lead_days": round(lead_days, 1) if lead_days is not None else None,
                 "upcoming_7_days": upcoming,
             },
             "daily": [{"date": d, **{st.value: n for st, n in counts.items()}} for d, counts in daily.items()],

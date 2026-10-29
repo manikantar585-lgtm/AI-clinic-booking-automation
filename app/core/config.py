@@ -32,6 +32,9 @@ class Settings(BaseSettings):
 
     # Storage
     db_path: str = str(BASE_DIR / "clinic.db")
+    database_url: SecretStr = Field(
+        SecretStr(""), description="Postgres URL (e.g. Neon/Supabase). When set, it is used instead of DB_PATH."
+    )
     seed_demo_data: bool = True
 
     # Security

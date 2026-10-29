@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import re
-import sqlite3
 from dataclasses import asdict, dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, Protocol
 
 from app.core.errors import InvalidInputError, InvalidTransitionError
+
+
+class RowLike(Protocol):
+    """A database row: `sqlite3.Row` or the Postgres adapter's dict row."""
+
+    def __getitem__(self, key: str, /) -> Any: ...
 
 
 class AppointmentStatus(StrEnum):
@@ -72,7 +77,7 @@ class Doctor:
     active: bool = True
 
     @classmethod
-    def from_row(cls, row: sqlite3.Row) -> Doctor:
+    def from_row(cls, row: RowLike) -> Doctor:
         return cls(
             id=row["id"],
             name=row["name"],
@@ -110,7 +115,7 @@ class Appointment:
     reminder_sent_at: str | None = None
 
     @classmethod
-    def from_row(cls, row: sqlite3.Row) -> Appointment:
+    def from_row(cls, row: RowLike) -> Appointment:
         return cls(
             code=row["code"],
             doctor_id=row["doctor_id"],
@@ -142,7 +147,7 @@ class DoctorLeave:
     reason: str
 
     @classmethod
-    def from_row(cls, row: sqlite3.Row) -> DoctorLeave:
+    def from_row(cls, row: RowLike) -> DoctorLeave:
         return cls(row["id"], row["doctor_id"], row["start_date"], row["end_date"], row["reason"])
 
     def covers(self, day: str) -> bool:

@@ -2,6 +2,7 @@ from datetime import timedelta
 
 import pytest
 
+from app.core.database import utcnow
 from app.core.errors import InvalidInputError, InvalidTransitionError, NotFoundError, SlotUnavailableError
 from app.domain.models import AppointmentStatus
 from app.services.booking import BookingService
@@ -17,7 +18,7 @@ def _book(booking: BookingService, time: str = "11:00", day=TOMORROW, phone: str
 
 def test_reschedule_moves_slot_keeps_code_and_resets_reminder(booking: BookingService) -> None:
     appt = _book(booking)
-    booking.conn.execute("UPDATE appointments SET reminder_sent_at = datetime('now')")
+    booking.conn.execute("UPDATE appointments SET reminder_sent_at = ?", (utcnow(),))
     moved = booking.reschedule(appt.code, day=TOMORROW, time="15:00", phone="9876543210")
     assert (moved.code, moved.time, moved.rescheduled_count, moved.reminder_sent_at) == (appt.code, "15:00", 1, None)
     slots = booking.available_slots(DENTIST, TOMORROW)

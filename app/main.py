@@ -86,6 +86,7 @@ def create_app(
                 "sessions_purged": purged,
                 "llm_enabled": settings.llm_enabled,
                 "env": settings.env,
+                "database": db.engine,
             },
         )
         scheduler = None
@@ -96,7 +97,7 @@ def create_app(
             scheduler.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await scheduler
-        for client in (app.state.extractor, app.state.notifier):
+        for client in (app.state.extractor, app.state.notifier, app.state.db):
             close = getattr(client, "close", None)
             if close:
                 close()
@@ -109,7 +110,7 @@ def create_app(
         redoc_url=None,
     )
     app.state.settings = settings
-    app.state.db = Database(settings.db_path)
+    app.state.db = Database(settings.db_path, url=settings.database_url.get_secret_value())
     app.state.clock = clock or (lambda: datetime.now(settings.tz).replace(tzinfo=None))
     app.state.extractor = extractor or build_extractor(settings)
     app.state.notifier = notifier or build_notifier(settings)

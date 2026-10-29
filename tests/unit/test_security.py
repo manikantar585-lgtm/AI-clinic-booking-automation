@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from app.ai.assistant import ConversationState, Step
 from app.core.security import RateLimiter, tokens_match, twilio_signature, verify_twilio_signature
@@ -30,7 +30,8 @@ def test_session_expires_after_ttl(conn) -> None:
     store = SessionStore(conn, ConversationState, timedelta(minutes=30))
     store.save("s", ConversationState(step=Step.NAME, doctor_id=4))
     assert store.load("s").doctor_id == 4
-    conn.execute("UPDATE sessions SET updated_at = datetime('now', '-31 minutes')")
+    stale = (datetime.now(UTC) - timedelta(minutes=31)).strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute("UPDATE sessions SET updated_at = ?", (stale,))
     assert store.load("s") == ConversationState()
     assert store.purge_expired() == 1
 

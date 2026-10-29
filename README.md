@@ -62,7 +62,7 @@ flowchart LR
     API --> SVC[app/services<br/>booking · sessions]
     AI --> SVC
     SVC --> DOM[app/domain<br/>pure rules]
-    SVC --> DB[(SQLite WAL)]
+    SVC --> DB[(SQLite or Postgres)]
 ```
 
 ```
@@ -134,14 +134,25 @@ All errors have one shape: `{"error": {"code", "message", "details"?}, "request_
 4. Set `TWILIO_AUTH_TOKEN` and `PUBLIC_BASE_URL` so requests are signature-checked. Verified
    senders skip the phone-number question and can manage their own bookings.
 
-## Deploy
+## Deploy for free (Render + Neon)
 
-`render.yaml` is a one-click Render blueprint (it sets `ENV=production` and generates
-`ADMIN_TOKEN`). Any Docker host works:
+The app uses SQLite locally. When `DATABASE_URL` is set it uses Postgres instead, so a free host keeps
+its data across restarts.
+
+1. **Database:** create a free project at [neon.tech](https://neon.tech) and copy the connection string
+   (`postgresql://...?sslmode=require`).
+2. **App:** click [Deploy to Render](https://render.com/deploy?repo=https://github.com/manikantar585-lgtm/AI-clinic-booking-automation),
+   sign in with GitHub, paste the Neon string into `DATABASE_URL`, leave the other fields blank, and click **Apply**.
+3. Open the URL Render gives you. The admin token is under **Environment → `ADMIN_TOKEN`** in Render.
+
+Tables are created automatically on first start. Render's free plan sleeps after 15 minutes idle
+(the first request then takes about 50 s). A free uptime monitor pinging `/health` keeps it awake.
+
+Any other Docker host works too:
 
 ```bash
 docker build -t clinic-bot .
-docker run -p 8000:8000 -v clinic-data:/data -e ENV=production -e ADMIN_TOKEN=<strong-secret> clinic-bot
+docker run -p 8000:8000 -e ENV=production -e ADMIN_TOKEN=<strong-secret> -e DATABASE_URL=<postgres-url> clinic-bot
 ```
 
 All settings are documented in [.env.example](.env.example).

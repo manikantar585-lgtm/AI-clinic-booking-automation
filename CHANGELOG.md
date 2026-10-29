@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.2.0
+
+- **Postgres support** for free, persistent hosting (e.g. Neon). Set `DATABASE_URL` and the same code runs on
+  Postgres. SQLite remains the default for local use.
+- The SQL is portable (no engine-specific functions), timestamps are generated in Python, and booking stays
+  race-free via an advisory lock plus the partial unique index.
+- CI runs the full test suite on Postgres 17 as well as SQLite, and CI now also runs on `feat/*` and `fix/*` branches.
+
 ## 2.1.0
 
 ### Features

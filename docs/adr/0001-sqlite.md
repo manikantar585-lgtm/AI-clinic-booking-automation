@@ -1,6 +1,6 @@
 # ADR 0001: SQLite as the system of record
 
-**Status:** accepted
+**Status:** accepted · amended in 2.2: Postgres is supported via `DATABASE_URL` for hosted deploys (see `app/core/database.py`)
 
 ## Context
 The target is one small clinic: tens to a few hundred bookings a day, one app instance, and
